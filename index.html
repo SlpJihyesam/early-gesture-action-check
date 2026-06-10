@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>9~16개월 제스처·사물조작 발달 체크</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { margin:0; -webkit-text-size-adjust:100%; }
+  * { -webkit-tap-highlight-color: transparent; }
+  @media print {
+    .no-print { display:none !important; }
+    body { background:#fff !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+/* ============================== 데이터 ==============================
+   출처: FIRST WORDS® Project, Florida State University — 16 by 16™
+   제스처 18항목 / 사물조작 19항목 (원본 그대로)
+   기대 누계선: 매달 +2 (9개월=2 … 16개월=16), 두 영역 공통
+==================================================================== */
+const GESTURE_DATA = [
+  { m: 9, items: ["주기 (Give)", "고개 젓기 (Shake head·싫어)"] },
+  { m: 10, items: ["손 뻗기 (Reach)", "두 팔 들어올리기 (안아줘)"] },
+  { m: 11, items: ["보여주기 (Show)", "손 흔들기 (Wave·인사)"] },
+  { m: 12, items: ["손바닥 펴서 가리키기 (Open-hand point)", "톡톡 두드리기 (Tap)"] },
+  { m: 13, items: ["박수치기 (Clap)", "손키스 보내기 (Blow a kiss)"] },
+  { m: 14, items: ["검지로 가리키기 (Index-finger point)", "쉿 제스처 (Shhh)"] },
+  { m: 15, items: ["고개 끄덕이기 (Head nod·응)", "엄지 척 (Thumbs up)", "손 들어 기다려 (Hand up)"] },
+  { m: 16, items: ["어깨 으쓱 (몰라·I dunno)", "하이파이브 (High 5)", "브이 사인 (Peace sign)"] },
+];
+const OBJECT_DATA = [
+  { m: 9, items: ["입에 넣기 (Mouth)", "두드리기·부딪치기 (Bang)", "떨어뜨리기 (Drop)"] },
+  { m: 10, items: ["벗기기 (Take off·양말·모자)", "꺼내기 (Take out·서랍)"] },
+  { m: 11, items: ["밀기 (Push·버튼·기차)", "돌리기 (Turn·책장·핸들)"] },
+  { m: 12, items: ["토닥이기 (Pat)", "넣기 (Put in·퍼즐·구멍)"] },
+  { m: 13, items: ["먹여주기 (Feed others·인형·엄마)", "열고 닫기 (Open & close)"] },
+  { m: 14, items: ["앞뒤로 움직이기 (Back & forth·칫솔질)", "위아래로 움직이기 (Up & down·북채)"] },
+  { m: 15, items: ["붓기·따르기 (Pour)", "씻고 말리기 (Wash & dry)"] },
+  { m: 16, items: ["쌓기 (Stack·블록 탑)", "찍어내기·오려내기 (Cut out·점토)", "끄적이기 (Scribble)", "그리기 (Draw)"] },
+];
+const EXPECTED = { 9: 2, 10: 4, 11: 6, 12: 8, 13: 10, 14: 12, 15: 14, 16: 16 };
+const MONTHS = [9, 10, 11, 12, 13, 14, 15, 16];
+
+const countItems = (data) => data.reduce((s, r) => s + r.items.length, 0);
+const G_MAX = countItems(GESTURE_DATA); // 18
+const O_MAX = countItems(OBJECT_DATA);  // 19
+
+const C = {
+  bg: "#F5F7F3", surface: "#FFFFFF", ink: "#1F2937", muted: "#6B7280",
+  primary: "#0F766E", accent: "#14B8A6",
+  greenLine: "#16A34A", greenBand: "#D8F3DC",
+  amberLine: "#CA8A04", amberBand: "#FBF0CC",
+  orangeLine: "#EA580C", orangeBand: "#FBE0D0",
+  expected: "#94A3B8", border: "#E5E9E2",
+};
+
+/* ============================== 아이콘 ============================== */
+const Ico = (g) => ({ size = 16, style, className }) =>
+  <span className={className} style={{ fontSize: size, lineHeight: 1, display: "inline-block", ...style }}>{g}</span>;
+const Baby = Ico("👶"), HandMetal = Ico("✋"), Blocks = Ico("🧱"), Save = Ico("💾"),
+  Printer = Ico("🖨️"), Plus = Ico("＋"), Users = Ico("👥"), Target = Ico("🎯"),
+  Info = Ico("ℹ️"), Camera = Ico("📷"), ChevronRight = Ico("›"), ChevronLeft = Ico("‹");
+const CheckCircle2 = ({ size = 22, style }) =>
+  <svg width={size} height={size} viewBox="0 0 24 24" style={style} fill="none">
+    <circle cx="12" cy="12" r="10" fill="#16A34A" />
+    <path d="M8 12l3 3 5-6" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>;
+const Circle = ({ size = 22, style }) =>
+  <svg width={size} height={size} viewBox="0 0 24 24" style={style} fill="none">
+    <circle cx="12" cy="12" r="10" stroke="#CBD5E1" strokeWidth="2" />
+  </svg>;
+
+/* ============================== 계산 ============================== */
+function monthsBetween(fromISO, toISO) {
+  if (!fromISO || !toISO) return null;
+  const from = new Date(fromISO), to = new Date(toISO);
+  if (isNaN(from) || isNaN(to)) return null;
+  let months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+  if (to.getDate() < from.getDate()) months -= 1;
+  return months;
+}
+function correctedMonths(dob, evalDate, birthWeeks) {
+  if (!birthWeeks || birthWeeks >= 40) return null;
+  const due = new Date(dob);
+  due.setDate(due.getDate() + (40 - birthWeeks) * 7);
+  return monthsBetween(due.toISOString(), evalDate);
+}
+function trafficBand(expected, observed) {
+  const gap = expected - observed;
+  if (gap <= 1) return "green";
+  if (gap <= 3) return "yellow";
+  return "orange";
+}
+const BAND_META = {
+  green: { label: "또래 기대 도달", line: C.greenLine, band: C.greenBand },
+  yellow: { label: "지켜보기", line: C.amberLine, band: C.amberBand },
+  orange: { label: "상담 권유", line: C.orangeLine, band: C.orangeBand },
+};
+
+/* ============================== SVG 차트 ============================== */
+function DevChart({ max, childByMonth, currentMonth, currentValue }) {
+  const W = 360, H = 230, PL = 26, PR = 10, PT = 12, PB = 24;
+  const pw = W - PL - PR, ph = H - PT - PB;
+  const xFor = (m) => PL + ((m - 9) / 7) * pw;
+  const yFor = (v) => PT + (1 - v / max) * ph;
+  const orangeTop = (m) => Math.max(0, Math.min(max, EXPECTED[m] - 3.5));
+  const yellowTop = (m) => Math.max(0, Math.min(max, EXPECTED[m] - 1.5));
+  const bandPath = (topFn, botFn) => {
+    let d = "";
+    MONTHS.forEach((m, i) => { d += `${i ? "L" : "M"}${xFor(m).toFixed(1)} ${yFor(topFn(m)).toFixed(1)} `; });
+    [...MONTHS].reverse().forEach((m) => { d += `L${xFor(m).toFixed(1)} ${yFor(botFn(m)).toFixed(1)} `; });
+    return d + "Z";
+  };
+  const expLine = MONTHS.map((m) => `${xFor(m).toFixed(1)},${yFor(EXPECTED[m]).toFixed(1)}`).join(" ");
+  const childPts = MONTHS.map((m) => {
+    const v = childByMonth[m] != null ? childByMonth[m] : (m === currentMonth ? currentValue : null);
+    return v != null ? { x: xFor(m), y: yFor(v), v, m } : null;
+  }).filter(Boolean);
+  const childLine = childPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const yticks = [0, Math.round(max / 2), max];
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }}>
+      <path d={bandPath(orangeTop, () => 0)} fill={C.orangeBand} />
+      <path d={bandPath(yellowTop, orangeTop)} fill={C.amberBand} />
+      <path d={bandPath(() => max, yellowTop)} fill={C.greenBand} />
+      {yticks.map((t) => (
+        <g key={t}>
+          <line x1={PL} y1={yFor(t)} x2={W - PR} y2={yFor(t)} stroke="#ffffff" strokeOpacity="0.6" />
+          <text x={PL - 4} y={yFor(t) + 3} fontSize="9" fill={C.muted} textAnchor="end">{t}</text>
+        </g>
+      ))}
+      {MONTHS.map((m) => (
+        <text key={m} x={xFor(m)} y={H - PB + 14} fontSize="9" fill={C.muted} textAnchor="middle">{m}</text>
+      ))}
+      <polyline points={expLine} fill="none" stroke={C.expected} strokeWidth="2" strokeDasharray="5 4" />
+      {childPts.length > 1 && <polyline points={childLine} fill="none" stroke={C.primary} strokeWidth="3" />}
+      {childPts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="5" fill={C.primary} stroke="#fff" strokeWidth="2" />)}
+    </svg>
+  );
+}
+
+/* ============================== 작은 컴포넌트 ============================== */
+function Field({ label, children }) {
+  return (
+    <label className="block mb-3">
+      <span className="block text-sm font-medium mb-1" style={{ color: C.ink }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+const inputStyle = { width: "100%", padding: "11px 12px", borderRadius: 12, border: `1px solid ${C.border}`, fontSize: 15, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" };
+
+function CheckRow({ label, checked, onToggle }) {
+  return (
+    <button onClick={onToggle} className="w-full flex items-center gap-3 px-3 py-3 text-left rounded-xl"
+      style={{ background: checked ? "#ECFDF5" : "#fff", border: `1px solid ${checked ? "#A7F3D0" : C.border}` }}>
+      {checked ? <CheckCircle2 style={{ flexShrink: 0 }} /> : <Circle style={{ flexShrink: 0 }} />}
+      <span className="text-sm leading-snug" style={{ color: checked ? C.primary : C.ink }}>{label}</span>
+    </button>
+  );
+}
+function StepDots({ step }) {
+  const steps = ["정보", "제스처", "사물조작", "결과"];
+  return (
+    <div className="flex items-center justify-center gap-2 mb-4 no-print">
+      {steps.map((s, i) => (
+        <div key={s} className="flex items-center gap-2">
+          <div className="flex items-center justify-center rounded-full text-xs font-semibold"
+            style={{ width: 26, height: 26, background: i <= step ? C.primary : "#fff", color: i <= step ? "#fff" : C.muted, border: `1px solid ${i <= step ? C.primary : C.border}` }}>{i + 1}</div>
+          {i < steps.length - 1 && <div style={{ width: 18, height: 2, background: i < step ? C.primary : C.border }} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+function CheckRowsForMonth({ row, prefix, checks, onToggle }) {
+  return row.items.map((label, i) => {
+    const id = `${prefix}-${row.m}-${i}`;
+    return <CheckRow key={id} label={label} checked={!!checks[id]} onToggle={() => onToggle(id)} />;
+  });
+}
+function CheckStep({ title, Icon, data, prefix, checks, onToggle, count, max, onBack, onNext, nextLabel }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2"><Icon size={20} /><h2 className="font-bold text-base" style={{ color: C.ink }}>{title}</h2></div>
+        <span className="text-sm font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F0FDFA", color: C.primary }}>{count} / {max}</span>
+      </div>
+      <p className="text-xs mb-3" style={{ color: C.muted }}>아동이 현재 <b>스스로 하는</b> 항목을 모두 체크하세요. 생활연령과 무관하게 보이는 대로 체크합니다.</p>
+      {data.map((row) => (
+        <div key={row.m} className="mb-3">
+          <div className="text-xs font-semibold mb-1.5 px-1" style={{ color: C.muted }}>{row.m}개월 무렵</div>
+          <div className="flex flex-col gap-1.5"><CheckRowsForMonth row={row} prefix={prefix} checks={checks} onToggle={onToggle} /></div>
+        </div>
+      ))}
+      <div className="flex gap-2 mt-2">
+        <button onClick={onBack} className="py-3 px-4 rounded-xl" style={{ background: "#fff", border: `1px solid ${C.border}`, color: C.ink }}><ChevronLeft size={18} /></button>
+        <button onClick={onNext} className="flex-1 py-3 rounded-xl font-semibold text-white flex items-center justify-center gap-1" style={{ background: C.primary }}>{nextLabel} <ChevronRight size={18} /></button>
+      </div>
+    </div>
+  );
+}
+function SummaryStat({ label, count, expected, band, assessAge }) {
+  const over16 = assessAge != null && assessAge > 16;
+  const under9 = assessAge != null && assessAge < 9;
+  const passed = count >= 16;
+  let badge;
+  if (under9) badge = { t: "참고용", bg: "#F1F5F9", fg: C.muted };
+  else if (over16) badge = passed ? { t: "충분 수행", bg: C.greenBand, fg: C.greenLine } : { t: "수행 중", bg: "#F1F5F9", fg: C.primary };
+  else { const m = BAND_META[band] || BAND_META.green; badge = { t: m.label, bg: m.band, fg: m.line }; }
+  return (
+    <div className="flex-1 rounded-xl p-3" style={{ background: "#fff" }}>
+      <div className="text-xs" style={{ color: C.muted }}>{label}</div>
+      <div className="flex items-baseline gap-1 mt-0.5">
+        <span className="text-2xl font-bold" style={{ color: C.ink }}>{count}</span>
+        <span className="text-xs" style={{ color: C.muted }}>/ 기대 {expected ?? "-"}</span>
+      </div>
+      <span className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full mt-1.5" style={{ background: badge.bg, color: badge.fg }}>{badge.t}</span>
+    </div>
+  );
+}
+function ResultArea({ title, Icon, count, expected, band, assessAge, childByMonth, currentMonth, currentValue, chartMax }) {
+  const meta = band ? BAND_META[band] : null;
+  const passed = count >= 16, over16 = assessAge > 16;
+  let message;
+  if (assessAge < 9) message = "적정 시기보다 이른 평가예요. 참고용으로 보세요.";
+  else if (over16) message = passed ? "9~16개월 과제를 충분히 수행하고 있어요. 다음 단계 평가를 권합니다." : `현재 9~16개월 척도에서 ${count}개를 수행하고 있어요. 아래 ‘다음 발달 목표’가 다음 단계예요.`;
+  else if (band === "green") message = "또래 기대 수준에 잘 도달하고 있어요.";
+  else if (band === "yellow") message = "기대보다 조금 적어요. 아래 목표를 가정에서 함께 늘려봐요.";
+  else message = "기대보다 차이가 있어요. 전문가 상담을 권합니다.";
+  return (
+    <div className="rounded-2xl p-3 mb-3" style={{ background: "#fff", border: `1px solid ${C.border}` }}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5"><Icon size={17} /><span className="font-semibold text-sm" style={{ color: C.ink }}>{title}</span></div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm" style={{ color: C.muted }}>관찰 <b style={{ color: C.ink }}>{count}</b> / 기대 {expected ?? "-"}</span>
+          {meta && !over16 && assessAge >= 9 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: meta.band, color: meta.line }}>{meta.label}</span>}
+        </div>
+      </div>
+      <DevChart max={chartMax} childByMonth={childByMonth} currentMonth={currentMonth} currentValue={currentValue} />
+      <div className="flex items-center gap-3 mt-1 px-1 text-xs" style={{ color: C.muted }}>
+        <span style={{ color: C.expected }}>– – 이 나이 기대</span>
+        <span style={{ color: C.primary }}>●— 아동</span>
+      </div>
+      <p className="text-sm mt-1 px-1 leading-snug" style={{ color: C.ink }}>{message}</p>
+    </div>
+  );
+}
+function NextGoals({ title, data, prefix, checks }) {
+  const missing = [];
+  data.forEach((row) => row.items.forEach((label, i) => { if (!checks[`${prefix}-${row.m}-${i}`]) missing.push({ m: row.m, label }); }));
+  if (missing.length === 0) return null;
+  return (
+    <div className="rounded-2xl p-3 mb-3" style={{ background: "#FBFDF9", border: `1px solid ${C.border}` }}>
+      <div className="flex items-center gap-1.5 mb-2"><Target size={16} /><span className="font-semibold text-sm" style={{ color: C.ink }}>{title} · 다음 발달 목표</span><span className="text-xs" style={{ color: C.muted }}>({missing.length})</span></div>
+      <div className="flex flex-col gap-1">
+        {missing.map((it, idx) => (
+          <div key={idx} className="flex items-center gap-2 text-sm py-1" style={{ color: C.ink }}>
+            <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ background: "#fff", border: `1px solid ${C.border}`, color: C.muted }}>{it.m}개월</span>
+            <span className="leading-snug">{it.label}</span>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs mt-2" style={{ color: C.muted }}>가정에서 이 행동들을 자연스럽게 유도해 보세요. (다음 버전에 활동 팁이 추가됩니다.)</p>
+    </div>
+  );
+}
+
+/* ============================== 메인 ============================== */
+function App() {
+  const [step, setStep] = useState(0);
+  const [info, setInfo] = useState({ name: "", dob: "", evalDate: new Date().toISOString().slice(0, 10), premature: false, birthWeeks: "" });
+  const [gChecks, setGChecks] = useState({});
+  const [oChecks, setOChecks] = useState({});
+  const [saved, setSaved] = useState([]);
+  const [activeChildId, setActiveChildId] = useState(null);
+  const [saveMsg, setSaveMsg] = useState("");
+
+  useEffect(() => {
+    try { const raw = localStorage.getItem("sixby16_children"); if (raw) setSaved(JSON.parse(raw)); } catch (e) {}
+  }, []);
+
+  const ca = useMemo(() => monthsBetween(info.dob, info.evalDate), [info.dob, info.evalDate]);
+  const cca = useMemo(() => (info.premature ? correctedMonths(info.dob, info.evalDate, Number(info.birthWeeks)) : null), [info.premature, info.dob, info.evalDate, info.birthWeeks]);
+  const assessAge = cca != null ? cca : ca;
+  const cappedMonth = assessAge == null ? null : Math.min(16, Math.max(9, assessAge));
+  const expectedNow = cappedMonth != null ? EXPECTED[cappedMonth] : null;
+
+  const gCount = Object.values(gChecks).filter(Boolean).length;
+  const oCount = Object.values(oChecks).filter(Boolean).length;
+  const gBand = expectedNow != null ? trafficBand(expectedNow, gCount) : null;
+  const oBand = expectedNow != null ? trafficBand(expectedNow, oCount) : null;
+
+  const activeChild = saved.find((c) => c.id === activeChildId);
+  const childByMonthG = {}, childByMonthO = {};
+  if (activeChild) activeChild.measurements.forEach((mm) => { const mo = Math.min(16, Math.max(9, mm.assessAge)); childByMonthG[mo] = mm.gCount; childByMonthO[mo] = mm.oCount; });
+
+  const toggle = (which, id) => { if (which === "g") setGChecks((p) => ({ ...p, [id]: !p[id] })); else setOChecks((p) => ({ ...p, [id]: !p[id] })); };
+  const resetForNew = () => { setInfo({ name: "", dob: "", evalDate: new Date().toISOString().slice(0, 10), premature: false, birthWeeks: "" }); setGChecks({}); setOChecks({}); setActiveChildId(null); setStep(0); setSaveMsg(""); };
+  const loadChild = (c) => { setActiveChildId(c.id); setInfo({ name: c.name, dob: c.dob, evalDate: new Date().toISOString().slice(0, 10), premature: c.premature, birthWeeks: c.birthWeeks || "" }); setGChecks({}); setOChecks({}); setStep(1); setSaveMsg(""); };
+
+  const saveMeasurement = () => {
+    const measurement = { date: info.evalDate, assessAge, ca, cca, gCount, oCount };
+    let list = [...saved];
+    let child = list.find((c) => c.id === activeChildId);
+    if (!child) { child = { id: String(Date.now()), name: info.name || "이름 미입력", dob: info.dob, premature: info.premature, birthWeeks: info.birthWeeks, measurements: [] }; list.push(child); setActiveChildId(child.id); }
+    child.measurements.push(measurement);
+    child.measurements.sort((a, b) => a.assessAge - b.assessAge);
+    try { localStorage.setItem("sixby16_children", JSON.stringify(list)); setSaved(list); setSaveMsg("저장됐어요. 다음에 같은 아동으로 다시 측정하면 성장 흐름이 이어집니다."); }
+    catch (e) { setSaveMsg("저장에 실패했어요. 결과를 인쇄·캡처로 남겨 주세요."); }
+  };
+
+  const ageOutOfRange = assessAge != null && (assessAge < 9 || assessAge > 16);
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.ink, fontFamily: "system-ui, -apple-system, sans-serif" }}>
+      <div className="max-w-md mx-auto px-4 py-5">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, background: C.primary }}><Baby size={20} /></div>
+          <div>
+            <h1 className="text-lg font-bold leading-none" style={{ color: C.primary }}>16 by 16 발달 체크</h1>
+            <p className="text-xs mt-1" style={{ color: C.muted }}>9~16개월 제스처 · 사물조작 발달 살펴보기</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl p-4 mt-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <StepDots step={step} />
+
+          {step === 0 && (
+            <div>
+              <Field label="아동 이름"><input style={inputStyle} value={info.name} onChange={(e) => setInfo({ ...info, name: e.target.value })} placeholder="예) 김OO" /></Field>
+              <Field label="생년월일"><input type="date" style={inputStyle} value={info.dob} onChange={(e) => setInfo({ ...info, dob: e.target.value })} /></Field>
+              <Field label="평가일"><input type="date" style={inputStyle} value={info.evalDate} onChange={(e) => setInfo({ ...info, evalDate: e.target.value })} /></Field>
+              <label className="flex items-center gap-2 mb-2 mt-1 cursor-pointer">
+                <input type="checkbox" checked={info.premature} onChange={(e) => setInfo({ ...info, premature: e.target.checked })} />
+                <span className="text-sm" style={{ color: C.ink }}>미숙아로 태어났어요 (교정연령 적용)</span>
+              </label>
+              {info.premature && <Field label="출생 주수 (예: 32)"><input type="number" style={inputStyle} value={info.birthWeeks} onChange={(e) => setInfo({ ...info, birthWeeks: e.target.value })} placeholder="40 미만일 때 교정 적용" /></Field>}
+              {ca != null && (
+                <div className="rounded-xl px-3 py-3 mt-1 text-sm" style={{ background: "#F0FDFA", border: "1px solid #99F6E4", color: C.primary }}>
+                  생활연령 <b>{ca}개월</b>{cca != null && <> · 교정연령 <b>{cca}개월</b></>}
+                  {cca != null && <div className="text-xs mt-1" style={{ color: C.muted }}>그래프 기준점은 교정연령({cca}개월)으로 계산돼요.</div>}
+                </div>
+              )}
+              {ageOutOfRange && (
+                <div className="rounded-xl px-3 py-2 mt-2 text-xs" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E" }}>
+                  {assessAge > 16 ? "이 항목들은 9~16개월 발달 수준에서 나타나는 과제예요. 생활연령과 관계없이 현재 수행하는 항목을 체크하세요. 그래프는 16개월 기준으로 표시됩니다." : "적정 시기(9~16개월)보다 이른 평가예요. 참고용으로 활용해 주세요."}
+                </div>
+              )}
+              <button onClick={() => setStep(1)} disabled={!info.dob} className="w-full mt-4 py-3 rounded-xl font-semibold text-white flex items-center justify-center gap-1" style={{ background: info.dob ? C.primary : "#CBD5E1" }}>체크 시작 <ChevronRight size={18} /></button>
+              {saved.length > 0 && (
+                <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.border}` }}>
+                  <div className="flex items-center gap-1.5 mb-2 text-sm font-medium" style={{ color: C.muted }}><Users size={15} /> 이전에 저장한 아동</div>
+                  {saved.map((c) => (
+                    <button key={c.id} onClick={() => loadChild(c)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl mb-1.5 text-left" style={{ background: "#fff", border: `1px solid ${C.border}` }}>
+                      <span className="text-sm" style={{ color: C.ink }}>{c.name}</span>
+                      <span className="text-xs" style={{ color: C.muted }}>측정 {c.measurements.length}회 · 다시 측정 ›</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === 1 && <CheckStep title="제스처 (몸짓)" Icon={HandMetal} prefix="g" data={GESTURE_DATA} checks={gChecks} onToggle={(id) => toggle("g", id)} count={gCount} max={G_MAX} onBack={() => setStep(0)} onNext={() => setStep(2)} nextLabel="사물조작으로" />}
+          {step === 2 && <CheckStep title="사물 조작 행동" Icon={Blocks} prefix="o" data={OBJECT_DATA} checks={oChecks} onToggle={(id) => toggle("o", id)} count={oCount} max={O_MAX} onBack={() => setStep(1)} onNext={() => setStep(3)} nextLabel="결과 보기" />}
+
+          {step === 3 && (
+            <div>
+              <div className="rounded-2xl p-4 mb-2" style={{ background: C.primary, color: "#fff" }}>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="font-bold text-lg">{info.name || "아동"}</h2>
+                  <span className="text-xs" style={{ opacity: 0.85 }}>16 by 16 발달 체크</span>
+                </div>
+                <p className="text-xs mt-0.5" style={{ opacity: 0.9 }}>평가일 {info.evalDate} · {cca != null ? `교정 ${cca}개월 (생활 ${ca})` : `생활 ${ca}개월`}</p>
+                <div className="flex gap-2 mt-3">
+                  <SummaryStat label="제스처" count={gCount} expected={expectedNow} band={gBand} assessAge={assessAge} />
+                  <SummaryStat label="사물 조작" count={oCount} expected={expectedNow} band={oBand} assessAge={assessAge} />
+                </div>
+                {assessAge > 16 && <p className="text-xs mt-2" style={{ opacity: 0.9 }}>생활연령이 16개월을 넘어 16개월 기준으로 표시됩니다.</p>}
+              </div>
+              <p className="text-xs mb-3 flex items-center gap-1 px-1 no-print" style={{ color: C.muted }}><Camera size={13} /> 이 화면을 캡처하거나 인쇄해 저장·공유할 수 있어요.</p>
+
+              <ResultArea title="제스처" Icon={HandMetal} count={gCount} expected={expectedNow} band={gBand} assessAge={assessAge} childByMonth={childByMonthG} currentMonth={cappedMonth} currentValue={gCount} chartMax={G_MAX} />
+              <ResultArea title="사물 조작" Icon={Blocks} count={oCount} expected={expectedNow} band={oBand} assessAge={assessAge} childByMonth={childByMonthO} currentMonth={cappedMonth} currentValue={oCount} chartMax={O_MAX} />
+              <NextGoals title="제스처" data={GESTURE_DATA} prefix="g" checks={gChecks} />
+              <NextGoals title="사물 조작" data={OBJECT_DATA} prefix="o" checks={oChecks} />
+
+              <div className="rounded-xl px-3 py-3 mt-3 text-xs leading-relaxed flex gap-2" style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, color: C.muted }}>
+                <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>이 결과는 발달을 살펴보는 <b>선별·안내</b>이며 진단이 아닙니다. 시선·표정, 소리+제스처, 말 이해 같은 다른 신호와 함께 살펴보아야 합니다. 아이가 한 걸음씩 다음 단계로 나아가도록 곁에서 도와주세요.</span>
+              </div>
+
+              <div className="flex gap-2 mt-4 no-print">
+                <button onClick={saveMeasurement} className="flex-1 py-3 rounded-xl font-semibold text-white flex items-center justify-center gap-1.5" style={{ background: C.primary }}><Save size={17} /> 측정 저장</button>
+                <button onClick={() => window.print()} className="flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-1.5" style={{ background: "#fff", border: `1px solid ${C.border}`, color: C.ink }}><Printer size={17} /> 인쇄·PDF</button>
+              </div>
+              {saveMsg && <p className="text-xs mt-2 text-center" style={{ color: C.primary }}>{saveMsg}</p>}
+              <div className="flex gap-2 mt-3 no-print">
+                <button onClick={() => setStep(2)} className="flex items-center gap-1 text-sm py-2 px-3 rounded-lg" style={{ color: C.muted }}><ChevronLeft size={15} /> 수정</button>
+                <button onClick={resetForNew} className="flex-1 flex items-center justify-center gap-1 text-sm py-2 rounded-lg" style={{ color: C.primary, border: `1px solid ${C.border}` }}><Plus size={15} /> 새 아동 측정</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <p className="text-center text-xs mt-4 leading-relaxed" style={{ color: "#9CA3AF" }}>
+          출처: FIRST WORDS® Project, Florida State University<br />16 by 16™ 프레임워크 기반 비공식 학습용 도구
+        </p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
